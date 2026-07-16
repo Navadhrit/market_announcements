@@ -1,0 +1,27 @@
+# Databases — generated locally by the scraper/pipeline, never commit real data
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+
+# Secrets
+.env
+
+# Logs & generated reports
+*.log
+reports/*.txt
+!reports/.gitkeep
+
+# Exports
+ideas_export.json
+*.csv
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# OS/editor cruft
+.DS_Store
+.vscode/

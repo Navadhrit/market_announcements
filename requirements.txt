@@ -1,0 +1,18 @@
+# ── Dashboard (bse_market_suite.py) ──────────────────────────────────────
+streamlit
+pandas
+plotly
+streamlit-option-menu
+streamlit-authenticator
+anthropic                  # optional: only needed for the "AI Digest" tab
+
+# ── Scraper (market_announcements.py) ────────────────────────────────────
+bse                         # BSE Equity API wrapper
+curl_cffi                   # NSE session handling (mimics a real browser's TLS)
+requests
+beautifulsoup4              # BSE SME HTML scraping
+lxml                        # fast HTML/XML parser used by BeautifulSoup
+schedule                    # `market_announcements.py schedule` unattended mode
+
+# announcement_ideas_pipeline.py and idea_rules.py use only the Python
+# standard library (sqlite3, json, argparse, re) — nothing extra needed.
