@@ -1807,12 +1807,13 @@ elif page == "Calculators":
 
     st.markdown("""<div class="page-head">
       <h1>🧮 Calculators</h1>
-      <p>Quick-fire investing &amp; tax tools — stock average, SIP, CAGR, capital gains, brokerage &amp; FD</p>
+      <p>Quick-fire investing &amp; tax tools — stock average, SIP, CAGR, capital gains, brokerage, FD, DCF &amp; Reverse DCF</p>
     </div>""", unsafe_allow_html=True)
 
-    calc1, calc2, calc3, calc4, calc5, calc6 = st.tabs([
+    calc1, calc2, calc3, calc4, calc5, calc6, calc7, calc8 = st.tabs([
         "📈 Stock Average", "💰 SIP", "📊 CAGR",
         "🧾 Capital Gains", "🏦 Brokerage", "🏛️ FD",
+        "🏗️ DCF", "🔄 Reverse DCF",
     ])
 
     # ── TAB 1 — Stock Average Calculator ────────────────────────────────────
@@ -1994,6 +1995,139 @@ elif page == "Calculators":
         _metric(d1, f"₹{fd_interest:,.2f}", "Interest earned")
         _metric(d2, f"₹{fd_maturity:,.2f}", "Maturity value")
         st.caption("Standard compound-interest FD math — actual bank payout may differ slightly by day-count convention.")
+
+    # ── shared DCF math (used by both DCF tabs) ──────────────────────────────
+    def _dcf_core(base_fcf, g1, n1, g_t, r, net_debt, shares):
+        """Two-stage DCF: explicit growth g1 for n1 years, then Gordon-growth terminal value."""
+        n1 = int(n1)
+        fcf_list = [base_fcf * (1 + g1) ** t for t in range(1, n1 + 1)]
+        pv_list  = [fcf / (1 + r) ** t for t, fcf in zip(range(1, n1 + 1), fcf_list)]
+        if r <= g_t:
+            return None
+        terminal_value = fcf_list[-1] * (1 + g_t) / (r - g_t)
+        pv_terminal = terminal_value / (1 + r) ** n1
+        ev = sum(pv_list) + pv_terminal
+        equity_value = ev - net_debt
+        per_share = equity_value / shares if shares else 0.0
+        return {
+            "fcf_list": fcf_list, "pv_list": pv_list, "terminal_value": terminal_value,
+            "pv_terminal": pv_terminal, "ev": ev, "equity_value": equity_value, "per_share": per_share,
+        }
+
+    # ── TAB 7 — DCF Calculator ────────────────────────────────────────────────
+    with calc7:
+        st.markdown("#### Discounted Cash Flow — intrinsic value per share")
+        st.caption("Two-stage model: explicit growth for N years, then a Gordon-growth terminal value discounted back at WACC.")
+
+        dc1, dc2, dc3 = st.columns(3)
+        dcf_fcf    = dc1.number_input("Base FCF — last 12m (₹ Cr)", min_value=0.0, value=500.0, step=10.0, key="dcf_fcf")
+        dcf_shares = dc2.number_input("Shares outstanding (Cr)", min_value=0.01, value=50.0, step=1.0, key="dcf_shares")
+        dcf_debt   = dc3.number_input("Net debt (₹ Cr) — negative if net cash", value=200.0, step=10.0, key="dcf_debt")
+
+        dc4, dc5, dc6, dc7 = st.columns(4)
+        dcf_g1   = dc4.number_input("Growth rate, explicit period (%)", value=15.0, step=0.5, key="dcf_g1")
+        dcf_n1   = dc5.number_input("Explicit period (years)", min_value=1, max_value=20, value=10, step=1, key="dcf_n1")
+        dcf_gt   = dc6.number_input("Terminal growth rate (%)", value=4.0, step=0.25, key="dcf_gt")
+        dcf_wacc = dc7.number_input("Discount rate / WACC (%)", min_value=0.1, value=11.0, step=0.25, key="dcf_wacc")
+
+        dcf_cmp = st.number_input("Current market price (₹) — optional, for upside/downside", min_value=0.0, value=0.0, step=1.0, key="dcf_cmp")
+
+        if dcf_wacc <= dcf_gt:
+            st.error("Discount rate must be greater than the terminal growth rate — adjust the inputs above.")
+        else:
+            res = _dcf_core(dcf_fcf, dcf_g1/100, dcf_n1, dcf_gt/100, dcf_wacc/100, dcf_debt, dcf_shares)
+
+            m1, m2, m3, m4 = st.columns(4)
+            _metric(m1, f"₹{res['ev']:,.0f} Cr", "Enterprise value")
+            _metric(m2, f"₹{res['equity_value']:,.0f} Cr", "Equity value")
+            _metric(m3, f"₹{res['per_share']:,.2f}", "Intrinsic value / share")
+            if dcf_cmp > 0:
+                upside = (res["per_share"] - dcf_cmp) / dcf_cmp * 100
+                _metric(m4, f"{upside:+,.1f}%", f"vs CMP ₹{dcf_cmp:,.2f}")
+            else:
+                _metric(m4, f"{res['pv_terminal']/res['ev']*100:,.0f}%", "Value from terminal")
+
+            years = list(range(1, int(dcf_n1) + 1))
+            fig_dcf = go.Figure()
+            fig_dcf.add_trace(go.Bar(x=years, y=res["fcf_list"], name="Projected FCF", marker_color=INK_MUTED, opacity=0.55))
+            fig_dcf.add_trace(go.Bar(x=years, y=res["pv_list"], name="PV of FCF", marker_color=ACCENT))
+            fig_dcf.update_layout(xaxis_title="Year", yaxis_title="₹ Cr", barmode="overlay")
+            st.plotly_chart(_plotly_defaults(fig_dcf, height=340), use_container_width=True)
+
+            fig_bridge = px.pie(
+                names=["PV of explicit-period FCF", "PV of terminal value"],
+                values=[sum(res["pv_list"]), res["pv_terminal"]],
+                hole=0.55, color_discrete_sequence=[ACCENT, "#adb5bd"], height=320,
+            )
+            fig_bridge.update_traces(textposition="inside", textinfo="percent+label")
+            fig_bridge.update_layout(font_family="IBM Plex Sans", margin=dict(l=0,r=0,t=20,b=0), showlegend=False)
+            bc1, bc2 = st.columns([1,1])
+            with bc1:
+                st.plotly_chart(fig_bridge, use_container_width=True)
+            with bc2:
+                st.markdown("##### Composition of enterprise value")
+                st.dataframe(pd.DataFrame({
+                    "Component": ["PV — explicit period", "PV — terminal value", "Enterprise value"],
+                    "₹ Cr": [round(sum(res["pv_list"]),1), round(res["pv_terminal"],1), round(res["ev"],1)],
+                }), hide_index=True, use_container_width=True)
+            st.caption("Terminal value = FCF in final explicit year × (1 + terminal growth) / (WACC − terminal growth), then discounted back N years.")
+
+    # ── TAB 8 — Reverse DCF Calculator ───────────────────────────────────────
+    with calc8:
+        st.markdown("#### Reverse DCF — what growth is the market pricing in?")
+        st.caption("Holds price, WACC and terminal growth fixed, and solves for the explicit-period growth rate that justifies today's price.")
+
+        rc1, rc2, rc3 = st.columns(3)
+        rdcf_cmp    = rc1.number_input("Current market price (₹)", min_value=0.01, value=800.0, step=1.0, key="rdcf_cmp")
+        rdcf_shares = rc2.number_input("Shares outstanding (Cr)", min_value=0.01, value=50.0, step=1.0, key="rdcf_shares")
+        rdcf_debt   = rc3.number_input("Net debt (₹ Cr) — negative if net cash", value=200.0, step=10.0, key="rdcf_debt")
+
+        rc4, rc5, rc6, rc7 = st.columns(4)
+        rdcf_fcf  = rc4.number_input("Base FCF — last 12m (₹ Cr)", min_value=0.01, value=500.0, step=10.0, key="rdcf_fcf")
+        rdcf_n1   = rc5.number_input("Explicit period (years)", min_value=1, max_value=20, value=10, step=1, key="rdcf_n1")
+        rdcf_gt   = rc6.number_input("Terminal growth rate (%)", value=4.0, step=0.25, key="rdcf_gt")
+        rdcf_wacc = rc7.number_input("Discount rate / WACC (%)", min_value=0.1, value=11.0, step=0.25, key="rdcf_wacc")
+
+        if rdcf_wacc <= rdcf_gt:
+            st.error("Discount rate must be greater than the terminal growth rate — adjust the inputs above.")
+        else:
+            r_dec, gt_dec = rdcf_wacc/100, rdcf_gt/100
+            target = rdcf_cmp
+
+            def _ps(g1):
+                out = _dcf_core(rdcf_fcf, g1, rdcf_n1, gt_dec, r_dec, rdcf_debt, rdcf_shares)
+                return out["per_share"] if out else float("-inf")
+
+            lo, hi = -0.50, 3.00
+            if _ps(lo) > target:
+                st.warning("Even a −50% growth assumption exceeds today's price — the market may be pricing in a decline steeper than this model's range.")
+            elif _ps(hi) < target:
+                st.warning("Even 300% growth doesn't reach today's price with these WACC/terminal assumptions — try lowering WACC or raising terminal growth.")
+            else:
+                for _ in range(60):
+                    mid = (lo + hi) / 2
+                    if _ps(mid) < target:
+                        lo = mid
+                    else:
+                        hi = mid
+                implied_g = (lo + hi) / 2
+
+                m1, m2 = st.columns(2)
+                _metric(m1, f"{implied_g*100:,.2f}%", "Implied growth rate (explicit period)")
+                _metric(m2, f"₹{_ps(implied_g):,.2f}", "Model price at that growth")
+
+                g_range = [x/1000 for x in range(-500, 1010, 10)]
+                px_vals = [_ps(g) for g in g_range]
+                fig_rev = go.Figure()
+                fig_rev.add_trace(go.Scatter(x=[g*100 for g in g_range], y=px_vals, name="Intrinsic value", line=dict(color=ACCENT, width=3)))
+                fig_rev.add_hline(y=rdcf_cmp, line_dash="dot", line_color=DANGER,
+                                   annotation_text=f"CMP ₹{rdcf_cmp:,.0f}", annotation_position="top left")
+                fig_rev.add_vline(x=implied_g*100, line_dash="dot", line_color=INK_MUTED)
+                fig_rev.add_trace(go.Scatter(x=[implied_g*100], y=[rdcf_cmp], mode="markers",
+                                              marker=dict(color=DANGER, size=10), name="Implied growth"))
+                fig_rev.update_layout(xaxis_title="Assumed explicit-period growth rate (%)", yaxis_title="Intrinsic value / share (₹)")
+                st.plotly_chart(_plotly_defaults(fig_rev, height=360), use_container_width=True)
+                st.caption("Where the blue curve crosses the current market price is the growth rate the market is implicitly assuming.")
 
     st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
     st.caption("These calculators are for quick estimation only and are not tax, investment or financial advice — inspired by tools like concall.in/calculators.")
