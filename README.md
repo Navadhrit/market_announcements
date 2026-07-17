@@ -70,8 +70,6 @@ export ANTHROPIC_API_KEY=sk-ant-...     # Windows: set ANTHROPIC_API_KEY=sk-ant-
 # 4. Get data — pick ONE:
 #    a) Real data — scrape today's announcements from all 4 sources:
 python3 market_announcements.py fetch
-#    b) Demo data — synthetic sample, no internet required:
-python3 announcement_ideas_pipeline.py --db bse_equity.db demo
 
 # 5. Score BSE Equity announcements for the Idea Board
 python3 announcement_ideas_pipeline.py --db bse_equity.db run
@@ -142,8 +140,6 @@ python3 announcement_ideas_pipeline.py --db bse_equity.db migrate
 python3 announcement_ideas_pipeline.py --db bse_equity.db seed
 python3 announcement_ideas_pipeline.py --db bse_equity.db classify
 
-# Build the synthetic demo DB (no real data needed)
-python3 announcement_ideas_pipeline.py --db bse_equity.db demo
 ```
 
 ## 3. Dashboard — `bse_market_suite.py`
@@ -194,6 +190,5 @@ market-announcements-suite/
 
 - **"ModuleNotFoundError: idea_rules"** — you're missing `idea_rules.py`; make sure it's in the same folder as `announcement_ideas_pipeline.py` (it's included in this repo).
 - **"Run: pip install streamlit-option-menu" / "...streamlit-authenticator"** — `pip install -r requirements.txt` wasn't run, or you're not inside the venv (`source .venv/bin/activate`).
-- **AI Digest button errors** — `ANTHROPIC_API_KEY` isn't set. Everything else in the dashboard works fine without it.
 - **Dashboard shows no data** — you haven't run `market_announcements.py fetch` (or the `demo` command) yet, or the `.db` files aren't in the same folder as `bse_market_suite.py`. Edit `DB_PATHS` near the top of `bse_market_suite.py` if you keep them elsewhere.
 - **BSE SME / NSE fetching fails** — these hit live, undocumented HTML/JSON endpoints (`bsesme.com`, NSE's API) that can rate-limit, change shape, or require standard browser-like headers already set in the script. Re-running usually works; persistent failures likely mean the site changed and the scraper needs a small fix.
