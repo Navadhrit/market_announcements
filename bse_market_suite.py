@@ -509,8 +509,8 @@ with st.sidebar:
     page = option_menu(
         menu_title="Dashboard",
         menu_icon="display",
-        options=["Announcements", "Charts", "Insights", "My Activity"],
-        icons=["file-earmark-text", "bar-chart-line", "lightbulb", "clock-history"],
+        options=["Announcements", "Charts", "Insights", "Calculators", "My Activity"],
+        icons=["file-earmark-text", "bar-chart-line", "lightbulb", "calculator", "clock-history"],
         default_index=0,
         styles={
             "container":      {"padding":"0.9rem 0.8rem","background-color":SURFACE,"border-radius":"14px","box-shadow":SHADOW_MD},
@@ -1802,6 +1802,202 @@ elif page == "Insights":
 # ═════════════════════════════════════════════════════════════════════════════
 #  PAGE: MY ACTIVITY
 # ═════════════════════════════════════════════════════════════════════════════
+
+elif page == "Calculators":
+
+    st.markdown("""<div class="page-head">
+      <h1>🧮 Calculators</h1>
+      <p>Quick-fire investing &amp; tax tools — stock average, SIP, CAGR, capital gains, brokerage &amp; FD</p>
+    </div>""", unsafe_allow_html=True)
+
+    calc1, calc2, calc3, calc4, calc5, calc6 = st.tabs([
+        "📈 Stock Average", "💰 SIP", "📊 CAGR",
+        "🧾 Capital Gains", "🏦 Brokerage", "🏛️ FD",
+    ])
+
+    # ── TAB 1 — Stock Average Calculator ────────────────────────────────────
+    with calc1:
+        st.markdown("#### Average price across single or multiple purchases")
+        st.caption("Add each buy lot (quantity + price). The average, total qty and total invested update live.")
+
+        default_lots = pd.DataFrame(
+            [{"Quantity": 10, "Price (₹)": 100.0}, {"Quantity": 10, "Price (₹)": 120.0}]
+        )
+        lots = st.data_editor(
+            default_lots, num_rows="dynamic", use_container_width=True,
+            key="sa_lots",
+            column_config={
+                "Quantity":   st.column_config.NumberColumn(min_value=0, step=1, format="%d"),
+                "Price (₹)":  st.column_config.NumberColumn(min_value=0.0, step=0.05, format="%.2f"),
+            },
+        )
+        lots = lots.dropna()
+        lots = lots[(lots["Quantity"] > 0) & (lots["Price (₹)"] > 0)]
+
+        if lots.empty:
+            st.info("Add at least one buy lot above to see the average.")
+        else:
+            total_qty = float(lots["Quantity"].sum())
+            total_inv = float((lots["Quantity"] * lots["Price (₹)"]).sum())
+            avg_price = total_inv / total_qty if total_qty else 0.0
+
+            sa1, sa2, sa3 = st.columns(3)
+            _metric(sa1, f"{total_qty:,.0f}", "Total quantity")
+            _metric(sa2, f"₹{total_inv:,.2f}", "Total invested")
+            _metric(sa3, f"₹{avg_price:,.2f}", "Average price")
+
+            st.markdown("---")
+            st.markdown("##### 🎯 What if I buy more to bring the average down?")
+            tgt1, tgt2 = st.columns(2)
+            add_price = tgt1.number_input("Price of additional buy (₹)", min_value=0.0, value=max(avg_price - 10, 0.0), step=0.5, key="sa_add_price")
+            target_avg = tgt2.number_input("Target average price (₹)", min_value=0.0, value=max(avg_price - 5, 0.0), step=0.5, key="sa_target_avg")
+            if add_price >= target_avg or target_avg <= 0:
+                st.caption("Set an additional-buy price below your target average to compute the quantity needed.")
+            else:
+                qty_needed = (total_qty * (avg_price - target_avg)) / (target_avg - add_price)
+                if qty_needed > 0:
+                    st.success(f"Buy **{qty_needed:,.0f}** more shares at ₹{add_price:,.2f} to bring your average down to ≈ ₹{target_avg:,.2f}.")
+                else:
+                    st.info("Your average is already at or below that target.")
+
+    # ── TAB 2 — SIP Calculator ───────────────────────────────────────────────
+    with calc2:
+        st.markdown("#### Systematic Investment Plan (SIP) future value")
+        s1, s2, s3 = st.columns(3)
+        sip_amt   = s1.number_input("Monthly investment (₹)", min_value=100.0, value=10000.0, step=500.0, key="sip_amt")
+        sip_ret   = s2.number_input("Expected annual return (%)", min_value=0.0, value=12.0, step=0.5, key="sip_ret")
+        sip_years = s3.number_input("Tenure (years)", min_value=1, value=10, step=1, key="sip_years")
+
+        r_m = sip_ret / 100 / 12
+        n_m = int(sip_years * 12)
+        fv  = sip_amt * (((1 + r_m) ** n_m - 1) / r_m) * (1 + r_m) if r_m > 0 else sip_amt * n_m
+        invested = sip_amt * n_m
+        gain = fv - invested
+
+        r1, r2, r3 = st.columns(3)
+        _metric(r1, f"₹{invested:,.0f}", "Total invested")
+        _metric(r2, f"₹{gain:,.0f}",     "Wealth gained")
+        _metric(r3, f"₹{fv:,.0f}",       "Maturity value")
+
+        yearly = []
+        bal = 0.0
+        for m in range(1, n_m + 1):
+            bal = (bal + sip_amt) * (1 + r_m) if r_m > 0 else bal + sip_amt
+            if m % 12 == 0:
+                yearly.append({"Year": m // 12, "Invested": sip_amt * m, "Value": bal})
+        if yearly:
+            yr_df = pd.DataFrame(yearly)
+            fig_sip = go.Figure()
+            fig_sip.add_trace(go.Scatter(x=yr_df["Year"], y=yr_df["Invested"], name="Invested", line=dict(color=INK_MUTED, dash="dot")))
+            fig_sip.add_trace(go.Scatter(x=yr_df["Year"], y=yr_df["Value"], name="Value", line=dict(color=ACCENT, width=3), fill="tonexty"))
+            fig_sip.update_layout(xaxis_title="Year", yaxis_title="₹")
+            st.plotly_chart(_plotly_defaults(fig_sip, height=340), use_container_width=True)
+        st.caption("Assumes a fixed monthly return and consistent contributions — actual market returns will vary.")
+
+    # ── TAB 3 — CAGR Calculator ──────────────────────────────────────────────
+    with calc3:
+        st.markdown("#### Compound Annual Growth Rate (CAGR)")
+        c1, c2, c3 = st.columns(3)
+        cagr_begin = c1.number_input("Initial value (₹)", min_value=0.01, value=100000.0, step=1000.0, key="cagr_begin")
+        cagr_end   = c2.number_input("Final value (₹)",   min_value=0.01, value=180000.0, step=1000.0, key="cagr_end")
+        cagr_yrs   = c3.number_input("Duration (years)",  min_value=0.1,  value=5.0,      step=0.5,    key="cagr_yrs")
+
+        cagr_pct = ((cagr_end / cagr_begin) ** (1 / cagr_yrs) - 1) * 100 if cagr_begin > 0 and cagr_yrs > 0 else 0.0
+        abs_gain_pct = ((cagr_end - cagr_begin) / cagr_begin) * 100 if cagr_begin > 0 else 0.0
+
+        g1, g2 = st.columns(2)
+        _metric(g1, f"{cagr_pct:,.2f}%", "CAGR")
+        _metric(g2, f"{abs_gain_pct:,.2f}%", "Absolute gain")
+        st.caption("CAGR = (Final / Initial)^(1 / years) − 1. Smooths out year-to-year volatility into a single annualised rate.")
+
+    # ── TAB 4 — Capital Gains (LTCG / STCG) ─────────────────────────────────
+    with calc4:
+        st.markdown("#### Capital gains on listed equity / equity mutual funds (India)")
+        st.caption("Tax rates below are pre-filled with current defaults but editable — always confirm against the latest Finance Act before relying on this for filing.")
+        cg1, cg2, cg3 = st.columns(3)
+        cg_buy  = cg1.number_input("Buy price (₹)",  min_value=0.0, value=100.0, step=1.0, key="cg_buy")
+        cg_sell = cg2.number_input("Sell price (₹)", min_value=0.0, value=150.0, step=1.0, key="cg_sell")
+        cg_qty  = cg3.number_input("Quantity", min_value=1, value=100, step=1, key="cg_qty")
+        cg_hold = st.radio("Holding period", ["Short-term (< 12 months)", "Long-term (≥ 12 months)"], horizontal=True, key="cg_hold")
+
+        with st.expander("⚙️ Tax rate assumptions (editable)"):
+            e1, e2 = st.columns(2)
+            stcg_rate = e1.number_input("STCG rate (%)", min_value=0.0, value=20.0, step=0.5, key="cg_stcg_rate")
+            ltcg_rate = e2.number_input("LTCG rate (%)", min_value=0.0, value=12.5, step=0.5, key="cg_ltcg_rate")
+            ltcg_exempt = st.number_input("LTCG exemption per FY (₹)", min_value=0.0, value=125000.0, step=5000.0, key="cg_ltcg_exempt")
+
+        gross_gain = (cg_sell - cg_buy) * cg_qty
+        if gross_gain <= 0:
+            st.warning(f"No capital gains tax applies — this position shows a loss of ₹{abs(gross_gain):,.2f}.")
+        elif cg_hold.startswith("Short"):
+            tax = gross_gain * stcg_rate / 100
+            n1, n2, n3 = st.columns(3)
+            _metric(n1, f"₹{gross_gain:,.2f}", "Gross gain")
+            _metric(n2, f"₹{tax:,.2f}", f"STCG tax @ {stcg_rate:g}%")
+            _metric(n3, f"₹{gross_gain - tax:,.2f}", "Net gain after tax")
+        else:
+            taxable = max(gross_gain - ltcg_exempt, 0)
+            tax = taxable * ltcg_rate / 100
+            n1, n2, n3 = st.columns(3)
+            _metric(n1, f"₹{gross_gain:,.2f}", "Gross gain")
+            _metric(n2, f"₹{tax:,.2f}", f"LTCG tax @ {ltcg_rate:g}% (after ₹{ltcg_exempt:,.0f} exempt)")
+            _metric(n3, f"₹{gross_gain - tax:,.2f}", "Net gain after tax")
+
+    # ── TAB 5 — Brokerage & Break-even Calculator ────────────────────────────
+    with calc5:
+        st.markdown("#### Brokerage, charges &amp; break-even price")
+        b1, b2, b3 = st.columns(3)
+        br_buy  = b1.number_input("Buy price (₹)",  min_value=0.0, value=100.0, step=1.0, key="br_buy")
+        br_sell = b2.number_input("Sell price (₹)", min_value=0.0, value=105.0, step=1.0, key="br_sell")
+        br_qty  = b3.number_input("Quantity", min_value=1, value=100, step=1, key="br_qty")
+
+        with st.expander("⚙️ Charges assumptions (editable — delivery trade defaults)"):
+            x1, x2, x3 = st.columns(3)
+            brok_pct   = x1.number_input("Brokerage (% per side)", min_value=0.0, value=0.0, step=0.01, key="br_brok_pct", help="Many discount brokers charge ₹0–20 flat per order instead — set to 0 and adjust below if so.")
+            brok_flat  = x2.number_input("Flat fee per order (₹)", min_value=0.0, value=0.0, step=1.0, key="br_brok_flat")
+            stt_pct    = x3.number_input("STT (% on sell side)", min_value=0.0, value=0.1, step=0.01, key="br_stt_pct")
+            y1, y2 = st.columns(2)
+            other_pct  = y1.number_input("Other charges — exchange/DP/GST/stamp (% per side)", min_value=0.0, value=0.05, step=0.01, key="br_other_pct")
+
+        buy_val  = br_buy * br_qty
+        sell_val = br_sell * br_qty
+        charges  = (
+            (buy_val + sell_val) * brok_pct / 100 + 2 * brok_flat
+            + sell_val * stt_pct / 100
+            + (buy_val + sell_val) * other_pct / 100
+        )
+        gross_pnl = sell_val - buy_val
+        net_pnl   = gross_pnl - charges
+        breakeven = (buy_val + charges) / br_qty if br_qty else 0.0
+
+        p1, p2, p3, p4 = st.columns(4)
+        _metric(p1, f"₹{gross_pnl:,.2f}", "Gross P&L")
+        _metric(p2, f"₹{charges:,.2f}",   "Total charges")
+        _metric(p3, f"₹{net_pnl:,.2f}",   "Net P&L")
+        _metric(p4, f"₹{breakeven:,.2f}", "Break-even price")
+
+    # ── TAB 6 — Fixed Deposit Calculator ─────────────────────────────────────
+    with calc6:
+        st.markdown("#### Fixed Deposit maturity value")
+        f1, f2, f3, f4 = st.columns(4)
+        fd_principal = f1.number_input("Principal (₹)", min_value=0.0, value=100000.0, step=5000.0, key="fd_principal")
+        fd_rate      = f2.number_input("Interest rate (% p.a.)", min_value=0.0, value=7.0, step=0.1, key="fd_rate")
+        fd_years     = f3.number_input("Tenure (years)", min_value=0.1, value=5.0, step=0.5, key="fd_years")
+        fd_comp      = f4.selectbox("Compounding", ["Quarterly", "Monthly", "Half-yearly", "Annually"], key="fd_comp")
+
+        comp_map = {"Quarterly": 4, "Monthly": 12, "Half-yearly": 2, "Annually": 1}
+        n_freq = comp_map[fd_comp]
+        fd_maturity = fd_principal * (1 + (fd_rate / 100) / n_freq) ** (n_freq * fd_years)
+        fd_interest = fd_maturity - fd_principal
+
+        d1, d2 = st.columns(2)
+        _metric(d1, f"₹{fd_interest:,.2f}", "Interest earned")
+        _metric(d2, f"₹{fd_maturity:,.2f}", "Maturity value")
+        st.caption("Standard compound-interest FD math — actual bank payout may differ slightly by day-count convention.")
+
+    st.markdown("<div style='height:0.5rem'></div>", unsafe_allow_html=True)
+    st.caption("These calculators are for quick estimation only and are not tax, investment or financial advice — inspired by tools like concall.in/calculators.")
+
 
 elif page == "My Activity":
 
